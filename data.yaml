@@ -1,0 +1,8 @@
+train: dataset/train/images
+val: dataset/val/images
+nc: 1  # number of classes
+names: ['object']  # class names
+
+# Dataset information
+train_num: 190
+val_num: 48
