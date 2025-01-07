@@ -2,3 +2,4 @@ label-studio-sdk
 numpy
 pycocotools
 ultralytics 
+Pillow
