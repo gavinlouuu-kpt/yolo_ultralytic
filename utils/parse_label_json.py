@@ -50,14 +50,14 @@ class LabelParser:
         return filename
 
     @staticmethod
-    def parse_json(json_data: List[Dict], parse_by_image_number: bool = False) -> Dict[str, np.ndarray]:
+    def parse_json(json_data: List[Dict], parse_by_image_number: bool = False) -> Dict[str, List[np.ndarray]]:
         """
         Parse Label Studio JSON annotations into a dictionary of masks
         Args:
             json_data: List of annotation dictionaries from Label Studio
             parse_by_image_number: If True, use image number as key, else use filename
         Returns:
-            Dict[str, np.ndarray]: Dictionary mapping image filenames/numbers to binary masks
+            Dict[str, List[np.ndarray]]: Dictionary mapping image filenames to lists of masks
         """
         masks_dict = {}
         
@@ -70,6 +70,9 @@ class LabelParser:
                 # Get image filename
                 image_filename = os.path.basename(task['data']['image'])
                 key = LabelParser._get_image_number(image_filename) if parse_by_image_number else image_filename
+                
+                # Initialize list for this image's masks
+                masks_dict[key] = []
                 
                 # Process annotations
                 for annotation in task['annotations']:
@@ -86,11 +89,11 @@ class LabelParser:
                             # Decode RLE to mask using label-studio-sdk
                             try:
                                 mask_layers = decode_from_annotation('image', formatted_result)
-                                # Get the first layer (assuming single class)
+                                # Get the first layer
                                 if mask_layers:
                                     first_layer = next(iter(mask_layers.values()))
-                                    masks_dict[key] = (first_layer > 0).astype(np.uint8)
-                                    break  # Take first valid mask for each image
+                                    mask = (first_layer > 0).astype(np.uint8)
+                                    masks_dict[key].append(mask)
                             except Exception as e:
                                 logger.error(f"Failed to decode mask for {key}: {str(e)}")
                                 continue
@@ -98,6 +101,10 @@ class LabelParser:
             except Exception as e:
                 logger.error(f"Error processing task: {str(e)}")
                 continue
+            
+            # Remove images with no valid masks
+            if not masks_dict[key]:
+                del masks_dict[key]
         
-        logger.info(f"Successfully parsed {len(masks_dict)} masks from JSON")
+        logger.info(f"Successfully parsed {len(masks_dict)} images with {sum(len(masks) for masks in masks_dict.values())} total masks")
         return masks_dict

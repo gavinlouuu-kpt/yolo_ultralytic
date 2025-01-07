@@ -1,5 +1,5 @@
-train: dataset/train/images
-val: dataset/val/images
+train: /home/mib-p5-a5000/code/yolo_ultralytic/dataset/train/images
+val: /home/mib-p5-a5000/code/yolo_ultralytic/dataset/val/images
 nc: 1  # number of classes
 names: ['object']  # class names
 
