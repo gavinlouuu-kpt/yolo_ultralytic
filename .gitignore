@@ -1,3 +1,4 @@
 runs/detect/
 dataset_review/
 *.pt
+templates/
