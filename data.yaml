@@ -4,5 +4,5 @@ nc: 1  # number of classes
 names: ['object']  # class names
 
 # Dataset information
-train_num: 190
-val_num: 48
+train_num: 320
+val_num: 80

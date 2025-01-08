@@ -6,11 +6,39 @@ from pathlib import Path
 import random
 from PIL import Image, ImageDraw
 import logging
+import glob
 from utils.parse_label_json import LabelParser, get_bbox_from_mask
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def find_project_paths(project_name):
+    """Find JSON and images paths for a given project name"""
+    # Look for project directory
+    project_dirs = glob.glob(f"LS_data/{project_name}*")
+    if not project_dirs:
+        raise ValueError(f"No project directory found matching: {project_name}")
+    
+    project_dir = project_dirs[0]  # Take the first matching directory
+    logger.info(f"Found project directory: {project_dir}")
+    
+    # Find JSON file
+    json_files = glob.glob(f"{project_dir}/*.json")
+    if not json_files:
+        raise ValueError(f"No JSON file found in {project_dir}")
+    
+    json_path = json_files[0]  # Take the first JSON file
+    logger.info(f"Found annotation file: {json_path}")
+    
+    # Find images directory
+    images_dir = os.path.join(project_dir, "images")
+    if not os.path.exists(images_dir):
+        raise ValueError(f"Images directory not found: {images_dir}")
+    
+    logger.info(f"Found images directory: {images_dir}")
+    
+    return json_path, images_dir
 
 def create_directory_structure():
     """Create YOLO directory structure"""
@@ -37,8 +65,11 @@ def draw_bounding_boxes(image_path, bboxes, output_path):
     # Save the image with bounding boxes
     image.save(output_path)
 
-def convert_annotations(json_path, image_dir, train_split=0.8):
+def convert_annotations(project_name, train_split=0.8):
     """Convert Label Studio annotations to YOLO format"""
+    # Find project paths
+    json_path, image_dir = find_project_paths(project_name)
+    
     # Create directory structure
     create_directory_structure()
     
@@ -48,18 +79,20 @@ def convert_annotations(json_path, image_dir, train_split=0.8):
     
     # Parse annotations using LabelParser
     masks_dict = LabelParser.parse_json(json_data, parse_by_image_number=False)
-    logger.info(f"Processing {len(masks_dict)} images from JSON")
+    logger.info(f"Processing {len(masks_dict)} images with annotations from JSON")
     
-    # Get list of actual images in directory
-    existing_images = set(os.listdir(image_dir))
-    logger.info(f"Found {len(existing_images)} images in directory")
+    # Get list of all images in directory
+    all_images = set(os.listdir(image_dir))
+    logger.info(f"Found {len(all_images)} total images in directory")
     
     # Process each image
-    valid_samples = []
+    valid_samples = []  # Images with annotations
+    blank_samples = []  # Images without annotations
     first_logged = False
     
+    # First process images with annotations
     for filename, masks in masks_dict.items():
-        if filename not in existing_images:
+        if filename not in all_images:
             logger.warning(f"Cannot find image file: {filename}")
             continue
             
@@ -83,15 +116,29 @@ def convert_annotations(json_path, image_dir, train_split=0.8):
             logger.error(f"Error processing {filename}: {str(e)}")
             continue
     
-    logger.info(f"Found {len(valid_samples)} valid samples")
+    # Then collect blank images (images without annotations)
+    annotated_images = set(masks_dict.keys())
+    blank_images = all_images - annotated_images
+    
+    for filename in blank_images:
+        img_path = os.path.join(image_dir, filename)
+        blank_samples.append((img_path, []))
+    
+    logger.info(f"Found {len(valid_samples)} samples with annotations")
+    logger.info(f"Found {len(blank_samples)} blank samples")
+    
+    # Combine and shuffle all samples
+    all_samples = valid_samples + blank_samples
+    random.shuffle(all_samples)
     
     # Split into train/val
-    random.shuffle(valid_samples)
-    split_idx = int(len(valid_samples) * train_split)
-    train_samples = valid_samples[:split_idx]
-    val_samples = valid_samples[split_idx:]
+    split_idx = int(len(all_samples) * train_split)
+    train_samples = all_samples[:split_idx]
+    val_samples = all_samples[split_idx:]
     
     logger.info(f"Split: {len(train_samples)} training, {len(val_samples)} validation")
+    logger.info(f"Training set: {sum(1 for _, bboxes in train_samples if bboxes)} with annotations, {sum(1 for _, bboxes in train_samples if not bboxes)} blank")
+    logger.info(f"Validation set: {sum(1 for _, bboxes in val_samples if bboxes)} with annotations, {sum(1 for _, bboxes in val_samples if not bboxes)} blank")
     
     # Process splits
     process_split(train_samples, 'train')
@@ -147,8 +194,11 @@ def create_label_file(image_path, bboxes, split):
 
 def create_yaml(num_train, num_val):
     """Create data.yaml file"""
-    yaml_content = f"""train: /home/mib-p5-a5000/code/yolo_ultralytic/dataset/train/images
-val: /home/mib-p5-a5000/code/yolo_ultralytic/dataset/val/images
+    # Get absolute path to current directory
+    current_dir = os.path.abspath(os.path.dirname(__file__))
+    
+    yaml_content = f"""train: {os.path.join(current_dir, 'dataset/train/images')}
+val: {os.path.join(current_dir, 'dataset/val/images')}
 nc: 1  # number of classes
 names: ['object']  # class names
 
@@ -160,8 +210,12 @@ val_num: {num_val}
         f.write(yaml_content)
 
 if __name__ == "__main__":
-    # Update these paths according to your setup
-    json_path = "LS_data/project-3-at-2025-01-07-09-28-eb91e8e5/project-3-at-2025-01-07-09-29-eb91e8e5.json"
-    image_dir = "LS_data/project-3-at-2025-01-07-09-28-eb91e8e5/images"
+    import argparse
     
-    convert_annotations(json_path, image_dir) 
+    parser = argparse.ArgumentParser(description='Convert Label Studio annotations to YOLO format')
+    parser.add_argument('project', help='Project name (directory name in LS_data/)')
+    parser.add_argument('--split', type=float, default=0.8, help='Train/val split ratio (default: 0.8)')
+    
+    args = parser.parse_args()
+    
+    convert_annotations(args.project, args.split) 
